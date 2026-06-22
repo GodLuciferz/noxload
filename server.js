@@ -9,7 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const DOWNLOAD_DIR = path.join(__dirname, 'downloads');
 if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR);
 
@@ -33,8 +33,8 @@ function send(jobId, data) {
 // yt-dlp path
 function getYtDlp() {
   const paths = [
-    'D:\\Python\\Scripts\\yt-dlp.exe',
     'yt-dlp',
+    'D:\\Python\\Scripts\\yt-dlp.exe',
     'D:\\Python\\Scripts\\yt-dlp',
     'C:\\Python312\\Scripts\\yt-dlp.exe',
     path.join(process.env.LOCALAPPDATA || '', 'Programs\\Python\\Python312\\Scripts\\yt-dlp.exe'),
@@ -48,8 +48,8 @@ function getYtDlp() {
 // ffmpeg path
 function getFfmpeg() {
   const paths = [
-    'C:\\Users\\DELL\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
     'ffmpeg',
+    'C:\\Users\\DELL\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
     'C:\\ffmpeg\\bin\\ffmpeg.exe',
     'D:\\ffmpeg\\bin\\ffmpeg.exe',
   ];
@@ -68,6 +68,16 @@ function sanitizeFilename(name) {
     .slice(0, 80) || String(Date.now());
 }
 
+// Extra yt-dlp flags to bypass YouTube bot detection
+const BYPASS_FLAGS = [
+  '--extractor-args', 'youtube:player_client=web,default',
+  '--no-check-certificates',
+  '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  '--add-header', 'Accept-Language:en-US,en;q=0.9',
+  '--socket-timeout', '30',
+  '--retries', '5',
+];
+
 // Info
 app.post('/api/info', (req, res) => {
   const { url } = req.body;
@@ -76,8 +86,14 @@ app.post('/api/info', (req, res) => {
   const ytdlp = getYtDlp();
   if (!ytdlp) return res.status(500).json({ error: 'yt-dlp not found.' });
 
-  exec(`"${ytdlp}" --dump-json --no-playlist "${url}"`, { timeout: 40000 }, (err, stdout) => {
-    if (err) return res.status(500).json({ error: 'Could not fetch video info. Check the URL.' });
+  const bypassStr = BYPASS_FLAGS.map(f => `"${f}"`).join(' ');
+  const cmd = `"${ytdlp}" --dump-json --no-playlist ${BYPASS_FLAGS.join(' ')} "${url}"`;
+
+  exec(cmd, { timeout: 60000 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('Info error:', stderr);
+      return res.status(500).json({ error: 'Could not fetch video info. Check the URL.' });
+    }
     try {
       const info = JSON.parse(stdout);
       const ffmpeg = getFfmpeg();
@@ -100,14 +116,13 @@ app.post('/api/info', (req, res) => {
         else if (h === 240) { label = '240p'; }
         else if (h === 144) { label = '144p'; badge = 'FAST'; }
 
-        const needsMerge = h >= 720;
         formats.push({
           id: ffmpeg ? `bestvideo[height<=${h}]+bestaudio/best[height<=${h}]` : `best[height<=${h}]`,
           label, badge,
           desc: `MP4 · ${h}p`,
           icon: h >= 1440 ? '🎬' : h >= 720 ? '📺' : '📱',
           ext: 'mp4', height: h,
-          needsFfmpeg: needsMerge && !ffmpeg
+          needsFfmpeg: h >= 720 && !ffmpeg
         });
       });
 
@@ -145,14 +160,15 @@ app.post('/api/download', (req, res) => {
   const safeName = title ? sanitizeFilename(title) : String(Date.now());
   const outputTemplate = path.join(DOWNLOAD_DIR, `${safeName}.%(ext)s`);
 
-  let args;
+  let args = [...BYPASS_FLAGS];
+
   if (ext === 'mp3') {
-    args = ['-x', '--audio-format', 'mp3', '--no-playlist', '--newline', '-o', outputTemplate];
+    args.push('-x', '--audio-format', 'mp3', '--no-playlist', '--newline', '-o', outputTemplate);
     if (ffmpeg) args.push('--ffmpeg-location', ffmpeg);
   } else if (ffmpeg) {
-    args = ['-f', formatId, '--merge-output-format', 'mp4', '--ffmpeg-location', ffmpeg, '--no-playlist', '--newline', '-o', outputTemplate];
+    args.push('-f', formatId, '--merge-output-format', 'mp4', '--ffmpeg-location', ffmpeg, '--no-playlist', '--newline', '-o', outputTemplate);
   } else {
-    args = ['-f', formatId, '--no-playlist', '--newline', '-o', outputTemplate];
+    args.push('-f', formatId, '--no-playlist', '--newline', '-o', outputTemplate);
   }
   args.push(url);
 
@@ -176,10 +192,9 @@ app.post('/api/download', (req, res) => {
   proc.on('close', (code) => {
     if (code !== 0) {
       send(jobId, { type: 'error' });
-      return res.status(500).json({ error: 'Download failed. See PowerShell for details.' });
+      return res.status(500).json({ error: 'Download failed.' });
     }
 
-    // Find the output file
     let files = [];
     try {
       files = fs.readdirSync(DOWNLOAD_DIR)
