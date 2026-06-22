@@ -76,6 +76,7 @@ const BYPASS_FLAGS = [
   '--add-header', 'Accept-Language:en-US,en;q=0.9',
   '--socket-timeout', '30',
   '--retries', '5',
+  '--cookies', path.join(__dirname, 'cookies.txt'),
 ];
 
 // Info
