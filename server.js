@@ -33,10 +33,10 @@ function send(jobId, data) {
 // yt-dlp path
 function getYtDlp() {
   const paths = [
+    '/usr/local/bin/yt-dlp',
     'yt-dlp',
     'D:\\Python\\Scripts\\yt-dlp.exe',
     'D:\\Python\\Scripts\\yt-dlp',
-    'C:\\Python312\\Scripts\\yt-dlp.exe',
   ];
   for (const p of paths) {
     try { execSync(`"${p}" --version`, { stdio: 'ignore' }); return p; } catch {}
