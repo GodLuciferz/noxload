@@ -33,6 +33,7 @@ function send(jobId, data) {
 // yt-dlp path
 function getYtDlp() {
   const paths = [
+    '/app/yt-dlp',
     '/usr/local/bin/yt-dlp',
     'yt-dlp',
     'D:\\Python\\Scripts\\yt-dlp.exe',
